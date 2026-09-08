@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FameLack Web Player</title>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background:#0b0b0b; color:#fff; overflow:hidden; height:100vh; }
+        .container { display:flex; height:100vh; }
+        .sidebar {
+            width:280px;
+            background:#181818;
+            overflow-y:auto;
+            flex-shrink:0;
+            transition: transform 0.3s;
+        }
+        @media (max-width:768px) {
+            .sidebar {
+                position:absolute;
+                z-index:50;
+                height:100vh;
+                transform: translateX(-100%);
+            }
+            .sidebar.open { transform: translateX(0); }
+        }
+        .main-area { flex:1; display:flex; flex-direction:column; height:100vh; }
+        .video-wrap {
+            flex:1;
+            background:#000;
+            position:relative;
+        }
+        video { width:100%; height:100%; object-fit:contain; }
+        iframe.fame-iframe {
+            width:100%;
+            height:100%;
+            border:none;
+            background:#fff;
+        }
+        .channel-item {
+            padding:10px 14px;
+            border-bottom:1px solid #272727;
+            cursor:pointer;
+        }
+        .channel-item:hover { background:#2a2a2a; }
+        .channel-item.active { background:#2563eb; }
+        .top-bar {
+            padding:10px;
+            background:#1f1f1f;
+            display:flex;
+            gap:10px;
+            align-items:center;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <!--侧边频道列表-->
+    <div id="sidebar" class="sidebar">
+        <div class="p-3 font-bold border-b border-gray-700">📺 频道列表</div>
+        <div id="channelList"></div>
+    </div>
+
+    <!--主播放区域-->
+    <div class="main-area">
+        <div class="top-bar">
+            <button id="toggleSide" class="md:hidden px-3 py-1 bg-gray-700 rounded">菜单</button>
+            <div id="nowTitle">等待加载频道...</div>
+        </div>
+        <div class="video-wrap">
+            <video id="hlsPlayer" controls class=""></video>
+            <iframe id="fameIframe" class="fame-iframe hidden"></iframe>
+        </div>
+    </div>
+</div>
+
+<script>
+const JSON_URL = "https://raw.githubusercontent.com/famelack/famelack-data/refs/heads/main/tv/raw/countries/cn.json";
+
+const sidebarEl = document.getElementById('sidebar');
+const toggleBtn = document.getElementById('toggleSide');
+const channelListEl = document.getElementById('channelList');
+const videoEl = document.getElementById('hlsPlayer');
+const iframeEl = document.getElementById('fameIframe');
+const nowTitleEl = document.getElementById('nowTitle');
+
+let channelData = [];
+let hls = null;
+let sideTimer = null;
+const AUTO_CLOSE_DELAY = 5000; // 5秒自动关闭
+
+// 清除侧边栏自动关闭定时器
+function clearSideTimer(){
+    if(sideTimer){
+        clearTimeout(sideTimer);
+        sideTimer = null;
+    }
+}
+
+// 启动侧边栏自动关闭（仅移动端）
+function startSideTimer(){
+    clearSideTimer();
+    if(window.innerWidth <=768){
+        sideTimer = setTimeout(()=>{
+            sidebarEl.classList.remove('open');
+            clearSideTimer();
+        }, AUTO_CLOSE_DELAY);
+    }
+}
+
+// 移动端侧边栏开关
+toggleBtn.addEventListener('click', ()=>{
+    if(sidebarEl.classList.contains('open')){
+        // 打开状态：点击关闭，清除定时器
+        sidebarEl.classList.remove('open');
+        clearSideTimer();
+    }else{
+        // 关闭状态：点击打开，启动5秒倒计时
+        sidebarEl.classList.add('open');
+        startSideTimer();
+    }
+})
+
+//销毁播放器
+function destroyPlayer(){
+    if(hls){
+        hls.destroy();
+        hls = null;
+    }
+    videoEl.classList.add('hidden');
+    iframeEl.classList.add('hidden');
+}
+
+//播放频道
+function playChannel(item){
+    destroyPlayer();
+    nowTitleEl.innerText = item.name || "未知频道";
+    //判断是否网页源
+    if(item.type === "web" || item.url?.match(/^http/i) && !item.url.endsWith('.m3u8')){
+        // fame内嵌网页播放
+        iframeEl.src = item.url;
+        iframeEl.classList.remove('hidden');
+    }else{
+        // m3u8流播放
+        videoEl.classList.remove('hidden');
+        if(Hls.isSupported()){
+            hls = new Hls();
+            hls.loadSource(item.url);
+            hls.attachMedia(videoEl);
+            hls.on(Hls.Events.MANIFEST_PARSED,function(){
+                videoEl.play().catch(e=>console.log("自动播放被阻止",e));
+            });
+        }else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
+            // safari原生支持m3u8
+            videoEl.src = item.url;
+            videoEl.play().catch(e=>{});
+        }
+    }
+    //移动端点击频道后关闭侧边栏
+    if(window.innerWidth <=768){
+        sidebarEl.classList.remove('open');
+        clearSideTimer();
+    }
+    //高亮选中
+    document.querySelectorAll('.channel-item').forEach(el=>el.classList.remove('active'));
+}
+
+//渲染频道列表
+function renderList(list){
+    channelListEl.innerHTML = '';
+    list.forEach((item,idx)=>{
+        const div = document.createElement('div');
+        div.className = 'channel-item';
+        div.innerText = item.name || `频道${idx+1}`;
+        div.dataset.index = idx;
+        div.onclick = ()=>{
+            //点击频道列表重置5秒倒计时
+            if(sidebarEl.classList.contains('open')){
+                startSideTimer();
+            }
+            playChannel(item);
+            div.classList.add('active');
+        }
+        channelListEl.appendChild(div);
+    })
+}
+
+//加载远程json
+async function loadSource(){
+    try{
+        const res = await fetch(JSON_URL);
+        const data = await res.json();
+        //适配cn.json结构 famelack格式
+        channelData = data.channels || data;
+        renderList(channelData);
+        nowTitleEl.innerText = `共${channelData.length}个频道，点击播放`;
+    }catch(err){
+        nowTitleEl.innerText = "源加载失败，跨域或网络问题";
+        console.error(err);
+    }
+}
+
+window.onload = loadSource;
+</script>
+</body>
+</html>
