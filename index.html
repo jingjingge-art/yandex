@@ -1,208 +1,351 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FameLack Web Player</title>
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { background:#0b0b0b; color:#fff; overflow:hidden; height:100vh; }
-        .container { display:flex; height:100vh; }
-        .sidebar {
-            width:280px;
-            background:#181818;
-            overflow-y:auto;
-            flex-shrink:0;
-            transition: transform 0.3s;
-        }
-        @media (max-width:768px) {
-            .sidebar {
-                position:absolute;
-                z-index:50;
-                height:100vh;
-                transform: translateX(-100%);
-            }
-            .sidebar.open { transform: translateX(0); }
-        }
-        .main-area { flex:1; display:flex; flex-direction:column; height:100vh; }
-        .video-wrap {
-            flex:1;
-            background:#000;
-            position:relative;
-        }
-        video { width:100%; height:100%; object-fit:contain; }
-        iframe.fame-iframe {
-            width:100%;
-            height:100%;
-            border:none;
-            background:#fff;
-        }
-        .channel-item {
-            padding:10px 14px;
-            border-bottom:1px solid #272727;
-            cursor:pointer;
-        }
-        .channel-item:hover { background:#2a2a2a; }
-        .channel-item.active { background:#2563eb; }
-        .top-bar {
-            padding:10px;
-            background:#1f1f1f;
-            display:flex;
-            gap:10px;
-            align-items:center;
-        }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111827">
+  <title>频道播放器</title>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      height: 100vh;
+      overflow: hidden;
+      background: #0b0f16;
+      color: #f3f4f6;
+      font: 15px/1.5 system-ui, sans-serif;
+    }
+    button, input { font: inherit; }
+    .app { display: flex; height: 100vh; }
+    .sidebar {
+      width: 320px;
+      min-width: 260px;
+      display: flex;
+      flex-direction: column;
+      background: #151b26;
+      border-right: 1px solid #293244;
+    }
+    .sidebar-header { padding: 16px; border-bottom: 1px solid #293244; }
+    h1 { margin: 0 0 12px; font-size: 18px; }
+    .search {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #374151;
+      border-radius: 8px;
+      outline: none;
+      color: #fff;
+      background: #0f1520;
+    }
+    .search:focus { border-color: #3b82f6; }
+    .count { margin-top: 9px; color: #9ca3af; font-size: 13px; }
+    .channel-list { flex: 1; overflow: auto; }
+    .channel {
+      display: block;
+      width: 100%;
+      padding: 11px 16px;
+      border: 0;
+      border-bottom: 1px solid #202938;
+      text-align: left;
+      color: #e5e7eb;
+      background: transparent;
+      cursor: pointer;
+    }
+    .channel:hover { background: #202a3a; }
+    .channel.active { background: #1d4ed8; color: white; }
+    .channel-name { display: block; overflow-wrap: anywhere; }
+    .channel-group { display: block; margin-top: 3px; color: #9ca3af; font-size: 12px; }
+    .channel.active .channel-group { color: #dbeafe; }
+    .main { display: flex; min-width: 0; flex: 1; flex-direction: column; }
+    .topbar {
+      display: flex;
+      min-height: 58px;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 16px;
+      background: #151b26;
+      border-bottom: 1px solid #293244;
+    }
+    .menu {
+      display: none;
+      padding: 7px 10px;
+      border: 0;
+      border-radius: 6px;
+      color: white;
+      background: #374151;
+      cursor: pointer;
+    }
+    .now-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .player-wrap {
+      position: relative;
+      display: grid;
+      flex: 1;
+      min-height: 0;
+      place-items: center;
+      background: #000;
+    }
+    video { width: 100%; height: 100%; object-fit: contain; }
+    .status {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      color: #cbd5e1;
+      text-align: center;
+      pointer-events: none;
+    }
+    .status[hidden] { display: none; }
+    @media (max-width: 700px) {
+      .sidebar {
+        position: fixed;
+        z-index: 2;
+        inset: 0 auto 0 0;
+        width: min(85vw, 320px);
+        transform: translateX(-100%);
+        transition: transform .2s ease;
+      }
+      .sidebar.open { transform: translateX(0); }
+      .menu { display: inline-block; }
+    }
+  </style>
 </head>
 <body>
-<div class="container">
-    <!--侧边频道列表-->
-    <div id="sidebar" class="sidebar">
-        <div class="p-3 font-bold border-b border-gray-700">📺 频道列表</div>
-        <div id="channelList"></div>
-    </div>
+  <div class="app">
+    <aside id="sidebar" class="sidebar">
+      <header class="sidebar-header">
+        <h1>📺 频道列表</h1>
+        <input id="search" class="search" type="search" placeholder="搜索频道…" autocomplete="off">
+        <div id="count" class="count">正在加载频道…</div>
+      </header>
+      <nav id="channelList" class="channel-list" aria-label="频道列表"></nav>
+    </aside>
 
-    <!--主播放区域-->
-    <div class="main-area">
-        <div class="top-bar">
-            <button id="toggleSide" class="md:hidden px-3 py-1 bg-gray-700 rounded">菜单</button>
-            <div id="nowTitle">等待加载频道...</div>
-        </div>
-        <div class="video-wrap">
-            <video id="hlsPlayer" controls class=""></video>
-            <iframe id="fameIframe" class="fame-iframe hidden"></iframe>
-        </div>
-    </div>
-</div>
+    <main class="main">
+      <header class="topbar">
+        <button id="menuButton" class="menu" type="button" aria-label="打开频道列表">菜单</button>
+        <div id="nowTitle" class="now-title">正在加载频道列表…</div>
+      </header>
+      <section class="player-wrap">
+        <video id="player" controls playsinline></video>
+        <div id="status" class="status">请选择一个频道播放</div>
+      </section>
+    </main>
+  </div>
 
-<script>
-const JSON_URL = "https://raw.githubusercontent.com/jingjingge-art/famelacktv/refs/heads/main/m3u/_all.m3u";
+  <script>
+    (() => {
+      const PLAYLIST_URL =
+        "https://raw.githubusercontent.com/jingjingge-art/famelacktv/main/m3u/_all.m3u";
 
-const sidebarEl = document.getElementById('sidebar');
-const toggleBtn = document.getElementById('toggleSide');
-const channelListEl = document.getElementById('channelList');
-const videoEl = document.getElementById('hlsPlayer');
-const iframeEl = document.getElementById('fameIframe');
-const nowTitleEl = document.getElementById('nowTitle');
+      const listEl = document.getElementById("channelList");
+      const countEl = document.getElementById("count");
+      const titleEl = document.getElementById("nowTitle");
+      const statusEl = document.getElementById("status");
+      const videoEl = document.getElementById("player");
+      const searchEl = document.getElementById("search");
+      const sidebarEl = document.getElementById("sidebar");
 
-let channelData = [];
-let hls = null;
-let sideTimer = null;
-const AUTO_CLOSE_DELAY = 5000; // 5秒自动关闭
+      let channels = [];
+      let activeButton = null;
+      let hls = null;
 
-// 清除侧边栏自动关闭定时器
-function clearSideTimer(){
-    if(sideTimer){
-        clearTimeout(sideTimer);
-        sideTimer = null;
-    }
-}
+      function showStatus(message) {
+        statusEl.textContent = message;
+        statusEl.hidden = false;
+      }
 
-// 启动侧边栏自动关闭（仅移动端）
-function startSideTimer(){
-    clearSideTimer();
-    if(window.innerWidth <=768){
-        sideTimer = setTimeout(()=>{
-            sidebarEl.classList.remove('open');
-            clearSideTimer();
-        }, AUTO_CLOSE_DELAY);
-    }
-}
+      function hideStatus() {
+        statusEl.hidden = true;
+      }
 
-// 移动端侧边栏开关
-toggleBtn.addEventListener('click', ()=>{
-    if(sidebarEl.classList.contains('open')){
-        // 打开状态：点击关闭，清除定时器
-        sidebarEl.classList.remove('open');
-        clearSideTimer();
-    }else{
-        // 关闭状态：点击打开，启动5秒倒计时
-        sidebarEl.classList.add('open');
-        startSideTimer();
-    }
-})
+      function destroyPlayback() {
+        if (hls) {
+          hls.destroy();
+          hls = null;
+        }
+        videoEl.pause();
+        videoEl.removeAttribute("src");
+        videoEl.load();
+      }
 
-//销毁播放器
-function destroyPlayer(){
-    if(hls){
-        hls.destroy();
-        hls = null;
-    }
-    videoEl.classList.add('hidden');
-    iframeEl.classList.add('hidden');
-}
+      // M3U 的频道名称位于 #EXTINF 元数据中最后一个未加引号的逗号之后。
+      function splitExtinf(line) {
+        let quoted = false;
+        for (let i = 0; i < line.length; i++) {
+          if (line[i] === '"') quoted = !quoted;
+          else if (line[i] === "," && !quoted) {
+            return [line.slice(0, i), line.slice(i + 1).trim()];
+          }
+        }
+        return [line, ""];
+      }
 
-//播放频道
-function playChannel(item){
-    destroyPlayer();
-    nowTitleEl.innerText = item.name || "未知频道";
-    //判断是否网页源
-    if(item.type === "web" || item.url?.match(/^http/i) && !item.url.endsWith('.m3u8')){
-        // fame内嵌网页播放
-        iframeEl.src = item.url;
-        iframeEl.classList.remove('hidden');
-    }else{
-        // m3u8流播放
-        videoEl.classList.remove('hidden');
-        if(Hls.isSupported()){
-            hls = new Hls();
-            hls.loadSource(item.url);
-            hls.attachMedia(videoEl);
-            hls.on(Hls.Events.MANIFEST_PARSED,function(){
-                videoEl.play().catch(e=>console.log("自动播放被阻止",e));
+      function parseM3U(text) {
+        const result = [];
+        let pending = null;
+
+        for (const rawLine of text.replace(/^\uFEFF/, "").split(/\r?\n/)) {
+          const line = rawLine.trim();
+          if (!line) continue;
+
+          if (line.startsWith("#EXTINF")) {
+            const [metadata, name] = splitExtinf(line);
+            const groupMatch = metadata.match(/group-title="([^"]*)"/i);
+            pending = {
+              name: name || "未命名频道",
+              group: groupMatch ? groupMatch[1] : ""
+            };
+            continue;
+          }
+
+          if (line.startsWith("#")) continue;
+
+          if (/^https?:\/\//i.test(line)) {
+            result.push({
+              name: pending?.name || `频道 ${result.length + 1}`,
+              group: pending?.group || "",
+              url: line
             });
-        }else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
-            // safari原生支持m3u8
-            videoEl.src = item.url;
-            videoEl.play().catch(e=>{});
+          }
+          pending = null;
         }
-    }
-    //移动端点击频道后关闭侧边栏
-    if(window.innerWidth <=768){
-        sidebarEl.classList.remove('open');
-        clearSideTimer();
-    }
-    //高亮选中
-    document.querySelectorAll('.channel-item').forEach(el=>el.classList.remove('active'));
-}
 
-//渲染频道列表
-function renderList(list){
-    channelListEl.innerHTML = '';
-    list.forEach((item,idx)=>{
-        const div = document.createElement('div');
-        div.className = 'channel-item';
-        div.innerText = item.name || `频道${idx+1}`;
-        div.dataset.index = idx;
-        div.onclick = ()=>{
-            //点击频道列表重置5秒倒计时
-            if(sidebarEl.classList.contains('open')){
-                startSideTimer();
+        return result;
+      }
+
+      function renderList(filter = "") {
+        const query = filter.trim().toLocaleLowerCase();
+        const filtered = channels.filter(channel =>
+          `${channel.name} ${channel.group}`.toLocaleLowerCase().includes(query)
+        );
+
+        listEl.replaceChildren();
+        countEl.textContent = query
+          ? `显示 ${filtered.length} / ${channels.length} 个频道`
+          : `共 ${channels.length} 个频道`;
+
+        const fragment = document.createDocumentFragment();
+        for (const channel of filtered) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "channel";
+          button.innerHTML = "";
+
+          const name = document.createElement("span");
+          name.className = "channel-name";
+          name.textContent = channel.name;
+          button.appendChild(name);
+
+          if (channel.group) {
+            const group = document.createElement("span");
+            group.className = "channel-group";
+            group.textContent = channel.group;
+            button.appendChild(group);
+          }
+
+          button.addEventListener("click", () => {
+            if (activeButton) activeButton.classList.remove("active");
+            activeButton = button;
+            button.classList.add("active");
+            playChannel(channel);
+            sidebarEl.classList.remove("open");
+          });
+
+          fragment.appendChild(button);
+        }
+        listEl.appendChild(fragment);
+      }
+
+      function isHlsUrl(url) {
+        try {
+          return new URL(url).pathname.toLowerCase().endsWith(".m3u8");
+        } catch {
+          return /\.m3u8(?:$|[?#])/i.test(url);
+        }
+      }
+
+      function playChannel(channel) {
+        destroyPlayback();
+        titleEl.textContent = channel.name;
+        showStatus("正在连接频道…");
+
+        const hlsUrl = isHlsUrl(channel.url);
+
+        if (hlsUrl && window.Hls && Hls.isSupported()) {
+          hls = new Hls({
+            enableWorker: true,
+            backBufferLength: 30
+          });
+
+          hls.attachMedia(videoEl);
+          hls.on(Hls.Events.MEDIA_ATTACHED, () => hls.loadSource(channel.url));
+          hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            hideStatus();
+            videoEl.play().catch(() => {
+              showStatus("频道已加载，请点击播放器上的播放按钮。");
+            });
+          });
+          hls.on(Hls.Events.ERROR, (_event, data) => {
+            if (!data.fatal) return;
+
+            if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+              showStatus("频道流加载失败，请检查网络、频道地址或跨域设置。");
+            } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+              hls.recoverMediaError();
+            } else {
+              showStatus("无法播放此频道，请尝试其他频道。");
+              destroyPlayback();
             }
-            playChannel(item);
-            div.classList.add('active');
+          });
+          return;
         }
-        channelListEl.appendChild(div);
-    })
-}
 
-//加载远程json
-async function loadSource(){
-    try{
-        const res = await fetch(JSON_URL);
-        const data = await res.json();
-        //适配cn.json结构 famelack格式
-        channelData = data.channels || data;
-        renderList(channelData);
-        nowTitleEl.innerText = `共${channelData.length}个频道，点击播放`;
-    }catch(err){
-        nowTitleEl.innerText = "源加载失败，跨域或网络问题";
-        console.error(err);
-    }
-}
+        // Safari 等浏览器可原生播放 HLS；其他直链也交给 video 元素尝试播放。
+        videoEl.src = channel.url;
+        videoEl.addEventListener("error", () => {
+          if (!videoEl.error) return;
+          showStatus("播放失败：频道可能已失效，或视频源不允许跨域访问。");
+        }, { once: true });
+        videoEl.addEventListener("playing", hideStatus, { once: true });
+        videoEl.play().then(hideStatus).catch(() => {
+          showStatus("频道已载入，请点击播放器上的播放按钮。若仍无法播放，请尝试其他频道。");
+        });
+      }
 
-window.onload = loadSource;
-</script>
+      async function loadChannels() {
+        showStatus("正在读取频道列表…");
+        try {
+          const response = await fetch(PLAYLIST_URL, { cache: "no-cache" });
+          if (!response.ok) {
+            throw new Error(`播放列表请求失败（HTTP ${response.status}）`);
+          }
+
+          const text = await response.text();
+          channels = parseM3U(text);
+
+          if (!channels.length) {
+            throw new Error("播放列表中没有找到可用的频道地址");
+          }
+
+          renderList();
+          titleEl.textContent = `已加载 ${channels.length} 个频道，请选择播放`;
+          showStatus("请选择左侧频道开始播放");
+        } catch (error) {
+          console.error("频道列表加载失败：", error);
+          countEl.textContent = "加载失败";
+          titleEl.textContent = "无法加载频道列表";
+          showStatus(`频道列表读取失败：${error.message}`);
+        }
+      }
+
+      searchEl.addEventListener("input", () => renderList(searchEl.value));
+      document.getElementById("menuButton").addEventListener("click", () => {
+        sidebarEl.classList.toggle("open");
+      });
+
+      loadChannels();
+    })();
+  </script>
 </body>
 </html>
